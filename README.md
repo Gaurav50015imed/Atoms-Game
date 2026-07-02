@@ -36,7 +36,7 @@ Because this game is completely self-contained, no installation or server is req
   * Unified Mouse/Touch event listeners for cross-device compatibility.
 
 ## 🚀 Potential Future Updates
-* [ ] Add an AI Opponent (Minimax algorithm).
+* [x] Add an AI Opponent (Minimax algorithm).
 * [ ] Support for 3 or 4 local players.
 * [ ] Customizable grid sizes (e.g., 10x10, 15x10).
 * [ ] Dark mode/Light mode themes.
