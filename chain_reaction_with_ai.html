@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Chain Reaction</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #121212;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        #game-container {
+            position: relative;
+            background-color: #1e1e1e;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            background-color: #2a2a2a;
+            cursor: pointer;
+            touch-action: none; 
+        }
+
+        .overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #fff;
+            text-shadow: 0 0 15px rgba(255, 255, 255, 0.4);
+        }
+
+        p.subtitle {
+            margin-bottom: 25px; 
+            color: #aaa;
+            font-size: 1rem;
+        }
+
+        h2 {
+            font-size: 2.2rem;
+            margin-bottom: 25px;
+            text-shadow: 0 0 15px currentColor;
+        }
+
+        .btn-group {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 100%;
+            max-width: 250px;
+        }
+
+        button {
+            padding: 15px 20px;
+            font-size: 1.1rem;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            text-transform: uppercase;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(0, 123, 255, 0.4);
+            width: 100%;
+        }
+
+        button.secondary {
+            background-color: #6c757d;
+            box-shadow: 0 4px 15px rgba(108, 117, 125, 0.4);
+        }
+
+        button:active {
+            transform: scale(0.95);
+            background-color: #0056b3;
+        }
+        
+        button.secondary:active {
+            background-color: #5a6268;
+        }
+
+        #turn-indicator {
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            z-index: 5;
+            background: rgba(0, 0, 0, 0.7);
+            border: 2px solid;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            pointer-events: none;
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="turn-indicator" class="hidden">Player 1's Turn</div>
+    
+    <canvas id="gameCanvas" width="360" height="540"></canvas>
+    
+    <!-- Main Menu -->
+    <div id="main-menu" class="overlay">
+        <h1>Chain Reaction</h1>
+        <p class="subtitle">A game of volatile strategy</p>
+        <div class="btn-group">
+            <button id="ai-btn">Play vs AI</button>
+            <button id="start-btn" class="secondary">Local Multiplayer</button>
+        </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="game-over" class="overlay hidden">
+        <h2 id="winner-text">Player X Wins!</h2>
+        <div class="btn-group">
+            <button id="menu-btn">Main Menu</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- Configuration & Global Variables ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    const ROWS = 9;
+    const COLS = 6;
+    const CELL_WIDTH = canvas.width / COLS;
+    const CELL_HEIGHT = canvas.height / ROWS;
+    
+    const PLAYER_COLORS = {
+        1: '#ff3b30', // Red (Player 1)
+        2: '#34c759'  // Green (Player 2 / AI)
+    };
+
+    let grid = [];
+    let currentPlayer = 1;
+    let isAnimating = false; 
+    let totalTurns = 0; 
+    let gameMode = 0; // 0 = Local PvP, 1 = Player vs AI
+
+    // --- Core Logic ---
+    function initGrid() {
+        grid = [];
+        for (let r = 0; r < ROWS; r++) {
+            let row = [];
+            for (let c = 0; c < COLS; c++) {
+                row.push({ owner: 0, mass: 0 });
+            }
+            grid.push(row);
+        }
+    }
+
+    function getCriticalMass(r, c) {
+        const isCorner = (r === 0 || r === ROWS - 1) && (c === 0 || c === COLS - 1);
+        const isEdge = r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1;
+        if (isCorner) return 2;
+        if (isEdge) return 3;
+        return 4;
+    }
+
+    // --- UI Controllers ---
+    function showMenu(e) {
+        if(e) e.preventDefault();
+        document.getElementById('main-menu').classList.remove('hidden');
+        document.getElementById('game-over').classList.add('hidden');
+        document.getElementById('turn-indicator').classList.add('hidden');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawGridLines();
+    }
+
+    function startGame(mode, e) {
+        if(e) e.preventDefault();
+        gameMode = mode;
+        initGrid();
+        currentPlayer = 1;
+        totalTurns = 0;
+        isAnimating = false;
+        
+        document.getElementById('main-menu').classList.add('hidden');
+        document.getElementById('game-over').classList.add('hidden');
+        document.getElementById('turn-indicator').classList.remove('hidden');
+        updateTurnIndicator();
+        drawBoard();
+    }
+
+    function gameOver(winner) {
+        document.getElementById('game-over').classList.remove('hidden');
+        const winnerText = document.getElementById('winner-text');
+        
+        if (gameMode === 1 && winner === 2) {
+            winnerText.innerText = `AI Wins!`;
+        } else {
+            winnerText.innerText = `Player ${winner} Wins!`;
+        }
+        
+        winnerText.style.color = PLAYER_COLORS[winner];
+        document.getElementById('turn-indicator').classList.add('hidden');
+    }
+
+    function updateTurnIndicator() {
+        const indicator = document.getElementById('turn-indicator');
+        if (gameMode === 1 && currentPlayer === 2) {
+            indicator.innerText = `AI is thinking...`;
+        } else {
+            indicator.innerText = `Player ${currentPlayer}'s Turn`;
+        }
+        indicator.style.color = PLAYER_COLORS[currentPlayer];
+        indicator.style.borderColor = PLAYER_COLORS[currentPlayer];
+    }
+
+    // --- Interaction ---
+    document.getElementById('start-btn').addEventListener('click', (e) => startGame(0, e));
+    document.getElementById('start-btn').addEventListener('touchstart', (e) => startGame(0, e), {passive: false});
+    
+    document.getElementById('ai-btn').addEventListener('click', (e) => startGame(1, e));
+    document.getElementById('ai-btn').addEventListener('touchstart', (e) => startGame(1, e), {passive: false});
+
+    document.getElementById('menu-btn').addEventListener('click', showMenu);
+    document.getElementById('menu-btn').addEventListener('touchstart', showMenu, {passive: false});
+
+    function applyMove(r, c) {
+        const cell = grid[r][c];
+        cell.owner = currentPlayer;
+        cell.mass += 1;
+        totalTurns++;
+
+        if (navigator.vibrate && currentPlayer === 1) navigator.vibrate(15); 
+
+        drawBoard();
+        checkExplosions();
+    }
+
+    function handleBoardInput(e) {
+        if (isAnimating) return; 
+        
+        if (gameMode === 1 && currentPlayer === 2) return;
+
+        if (!document.getElementById('main-menu').classList.contains('hidden')) return;
+        if (!document.getElementById('game-over').classList.contains('hidden')) return;
+
+        if (e.type === 'touchstart') e.preventDefault(); 
+
+        const rect = canvas.getBoundingClientRect();
+        
+        let clientX, clientY;
+        if (e.type === 'touchstart') {
+            clientX = e.touches[0].clientX;
+            clientY = e.touches[0].clientY;
+        } else {
+            clientX = e.clientX;
+            clientY = e.clientY;
+        }
+
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+        const c = Math.floor(x / CELL_WIDTH);
+        const r = Math.floor(y / CELL_HEIGHT);
+
+        if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return;
+
+        const cell = grid[r][c];
+        if (cell.owner !== 0 && cell.owner !== currentPlayer) {
+            if (navigator.vibrate) navigator.vibrate(50);
+            return; 
+        }
+
+        applyMove(r, c);
+    }
+
+    canvas.addEventListener('click', handleBoardInput);
+    canvas.addEventListener('touchstart', handleBoardInput, { passive: false });
+
+    // --- AI Logic (Heuristic Evaluator) ---
+    function makeAIMove() {
+        if (checkWinCondition()) return;
+
+        let bestScore = -Infinity;
+        let bestMoves = [];
+
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                if (grid[r][c].owner === 0 || grid[r][c].owner === 2) {
+                    let score = evaluateCell(r, c);
+                    
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMoves = [{r, c}];
+                    } else if (score === bestScore) {
+                        bestMoves.push({r, c});
+                    }
+                }
+            }
+        }
+
+        if (bestMoves.length > 0) {
+            const move = bestMoves[Math.floor(Math.random() * bestMoves.length)];
+            applyMove(move.r, move.c);
+        }
+    }
+
+    function evaluateCell(r, c) {
+        let score = 0;
+        const crit = getCriticalMass(r, c);
+        const currentMass = grid[r][c].mass;
+
+        if (crit === 2) score += 10;
+        else if (crit === 3) score += 5;
+
+        if (currentMass + 1 >= crit) score += 20;
+
+        const neighbors = [
+            { nr: r - 1, nc: c }, { nr: r + 1, nc: c },
+            { nr: r, nc: c - 1 }, { nr: r, nc: c + 1 }
+        ];
+        
+        let enemyThreat = false;
+        let vulnerableEnemy = false;
+
+        neighbors.forEach(({ nr, nc }) => {
+            if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
+                const nCell = grid[nr][nc];
+                const nCrit = getCriticalMass(nr, nc);
+                
+                if (nCell.owner === 1) { 
+                    if (nCell.mass === nCrit - 1) {
+                        enemyThreat = true; 
+                    }
+                    vulnerableEnemy = true; 
+                }
+            }
+        });
+
+        if (enemyThreat) {
+            if (currentMass + 1 >= crit) {
+                score += 50; 
+            } else {
+                score -= 30; 
+            }
+        }
+
+        if (vulnerableEnemy && (currentMass + 1 >= crit)) {
+            score += 30; 
+        }
+
+        score += Math.random() * 2; 
+        
+        return score;
+    }
+
+
+    // --- Explosion Handling ---
+    function checkExplosions() {
+        let explosions = [];
+
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                if (grid[r][c].mass >= getCriticalMass(r, c)) {
+                    explosions.push({ r, c });
+                }
+            }
+        }
+
+        if (explosions.length > 0) {
+            isAnimating = true;
+            setTimeout(() => processExplosions(explosions), 200); 
+        } else {
+            isAnimating = false;
+            if (checkWinCondition()) return;
+            
+            currentPlayer = currentPlayer === 1 ? 2 : 1;
+            updateTurnIndicator();
+
+            if (gameMode === 1 && currentPlayer === 2 && !checkWinCondition()) {
+                setTimeout(makeAIMove, 600); 
+            }
+        }
+    }
+
+    function processExplosions(explosions) {
+        let playerCausingExplosion = currentPlayer;
+        
+        if (navigator.vibrate && currentPlayer === 1) navigator.vibrate([30, 50, 30]);
+
+        explosions.forEach(({ r, c }) => {
+            const cell = grid[r][c];
+            const crit = getCriticalMass(r, c);
+            
+            cell.mass -= crit;
+            if (cell.mass === 0) cell.owner = 0;
+
+            const neighbors = [
+                { nr: r - 1, nc: c }, { nr: r + 1, nc: c },
+                { nr: r, nc: c - 1 }, { nr: r, nc: c + 1 }
+            ];
+
+            neighbors.forEach(({ nr, nc }) => {
+                if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
+                    grid[nr][nc].owner = playerCausingExplosion;
+                    grid[nr][nc].mass += 1;
+                }
+            });
+        });
+
+        drawBoard();
+        checkExplosions(); 
+    }
+
+    function checkWinCondition() {
+        // FIX: The AI was checking for a win before it even placed its first atom!
+        if (totalTurns < 2) return false;
+
+        let p1Exists = false;
+        let p2Exists = false;
+
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                if (grid[r][c].owner === 1) p1Exists = true;
+                if (grid[r][c].owner === 2) p2Exists = true;
+            }
+        }
+
+        if (p1Exists && !p2Exists) {
+            gameOver(1);
+            if (navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200]);
+            return true;
+        } else if (p2Exists && !p1Exists) {
+            gameOver(2);
+            if (navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200]);
+            return true;
+        }
+        return false;
+    }
+
+    // --- Rendering ---
+    function drawGridLines() {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let i = 0; i <= COLS; i++) {
+            ctx.moveTo(i * CELL_WIDTH, 0);
+            ctx.lineTo(i * CELL_WIDTH, canvas.height);
+        }
+        for (let i = 0; i <= ROWS; i++) {
+            ctx.moveTo(0, i * CELL_HEIGHT);
+            ctx.lineTo(canvas.width, i * CELL_HEIGHT);
+        }
+        ctx.stroke();
+    }
+
+    function drawAtoms(r, c, mass, color) {
+        const centerX = c * CELL_WIDTH + CELL_WIDTH / 2;
+        const centerY = r * CELL_HEIGHT + CELL_HEIGHT / 2;
+        const radius = 8;
+        const offset = 7;
+
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 12;
+
+        const positions = [];
+        if (mass === 1) {
+            positions.push({ x: centerX, y: centerY });
+        } else if (mass === 2) {
+            positions.push({ x: centerX - offset, y: centerY });
+            positions.push({ x: centerX + offset, y: centerY });
+        } else if (mass === 3) {
+            positions.push({ x: centerX, y: centerY - offset });
+            positions.push({ x: centerX - offset, y: centerY + offset });
+            positions.push({ x: centerX + offset, y: centerY + offset });
+        }
+
+        positions.forEach(pos => {
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = 'rgba(255,255,255,0.4)';
+            ctx.shadowBlur = 0;
+            ctx.beginPath();
+            ctx.arc(pos.x - 2, pos.y - 2, radius / 3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = color; 
+            ctx.shadowBlur = 12; 
+        });
+        
+        ctx.shadowBlur = 0; 
+    }
+
+    function drawBoard() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawGridLines();
+
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                const cell = grid[r][c];
+                if (cell.mass > 0) {
+                    drawAtoms(r, c, cell.mass, PLAYER_COLORS[cell.owner]);
+                }
+            }
+        }
+    }
+
+    // Boot up
+    showMenu();
+</script>
+</body>
+</html>
